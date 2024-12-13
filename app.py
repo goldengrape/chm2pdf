@@ -5,32 +5,49 @@ import streamlit as st
 import pdfkit
 from PyPDF2 import PdfMerger
 
+def list_all_files(directory):
+    file_list = []
+    for root, dirs, files in os.walk(directory):
+        for f in files:
+            file_list.append(os.path.join(root, f))
+    return file_list
+
 def chm_to_pdf(chm_file_path, output_pdf_path):
     with tempfile.TemporaryDirectory() as output_dir:
-        # 解压CHM文件
-        subprocess.run(["extract_chmLib", chm_file_path, output_dir], check=True)
+        # 捕获extract_chmLib的stdout和stderr
+        result = subprocess.run(
+            ["extract_chmLib", chm_file_path, output_dir], 
+            check=False, 
+            stdout=subprocess.PIPE, 
+            stderr=subprocess.PIPE,
+            text=True
+        )
 
-        # 列出所有解压文件（调试）
-        extracted_files = []
-        for root, dirs, files in os.walk(output_dir):
-            for f in files:
-                extracted_files.append(os.path.join(root, f))
-        st.write("解压出的文件列表：")
+        # 输出extract_chmLib的执行情况
+        st.write("### extract_chmLib执行结果")
+        st.write("**STDOUT:**")
+        st.text(result.stdout)
+        st.write("**STDERR:**")
+        st.text(result.stderr)
+
+        if result.returncode != 0:
+            raise RuntimeError(f"extract_chmLib运行失败，返回码：{result.returncode}")
+
+        # 列出所有解压文件并输出
+        extracted_files = list_all_files(output_dir)
+        st.write("### 解压出的文件列表：")
         st.write(extracted_files)
 
-        # 找到所有的HTML文件(包括.html和.htm)
+        # 找到所有HTML文件
         html_candidates = []
         for f in extracted_files:
             if f.lower().endswith(".html") or f.lower().endswith(".htm"):
                 html_candidates.append(f)
+        st.write("### 找到的HTML候选文件：", html_candidates)
 
-        st.write("找到的HTML候选文件：", html_candidates)
-
-        # 如果没有任何HTML候选文件，则说明无法转换
         if not html_candidates:
             raise RuntimeError("未在CHM文件中找到任何HTML/HTM文件。")
 
-        # 配置wkhtmltopdf
         options = {
             "enable-local-file-access": "",
             "load-error-handling": "ignore"
@@ -40,13 +57,11 @@ def chm_to_pdf(chm_file_path, output_pdf_path):
         total = len(html_candidates)
         for i, html_file in enumerate(html_candidates):
             st.progress(i / total)
-            html_file_path = f"file://{os.path.abspath(html_file)}"
-            
-            # 再次检查文件是否存在
             if not os.path.exists(html_file):
                 st.warning(f"文件不存在: {html_file}, 跳过。")
                 continue
-            
+
+            html_file_path = f"file://{os.path.abspath(html_file)}"
             pdf_file = html_file + ".pdf"
             try:
                 pdfkit.from_file(html_file_path, pdf_file, options=options)
