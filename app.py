@@ -1,7 +1,6 @@
 import os
 import subprocess
 import tempfile
-import shutil
 import streamlit as st
 import pdfkit
 from PyPDF2 import PdfMerger
@@ -21,21 +20,30 @@ def chm_to_pdf(chm_file_path, output_pdf_path):
         if not html_files:
             raise RuntimeError("未能在CHM文件中找到HTML文档，无法转换。")
 
-        # 转换为PDF时，加入options启用本地文件访问
         options = {
-            "enable-local-file-access": ""
+            "enable-local-file-access": "",
+            "load-error-handling": "ignore"  # 尝试忽略加载错误
         }
 
         temp_pdfs = []
         total = len(html_files)
         for i, html_file in enumerate(html_files):
-            # 在streamlit中显示进度
             st.progress(i / total)
-            # 给html_file加上file://协议前缀（如果需要）
+            if not os.path.exists(html_file):
+                # 文件不存在则跳过
+                continue
             html_file_path = f"file://{os.path.abspath(html_file)}"
             pdf_file = html_file + ".pdf"
-            pdfkit.from_file(html_file_path, pdf_file, options=options)
-            temp_pdfs.append(pdf_file)
+            try:
+                pdfkit.from_file(html_file_path, pdf_file, options=options)
+                temp_pdfs.append(pdf_file)
+            except Exception as e:
+                # 如果仍然报错，可选择跳过该文件
+                st.warning(f"转换 {html_file} 时发生错误，已跳过：{e}")
+                continue
+
+        if not temp_pdfs:
+            raise RuntimeError("未能成功转换任何HTML文件为PDF，可能是文件缺失或不兼容。")
 
         # 合并PDF
         merger = PdfMerger()
